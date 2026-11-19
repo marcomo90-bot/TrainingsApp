@@ -70,6 +70,15 @@ button{font:500 16px Roboto,system-ui,Arial,sans-serif;border:0;border-radius:20
 .sr.ok .ck{background:var(--acc);border-color:var(--acc);color:var(--accink)}
 .sr.todo .ck,.sr.todo input{color:var(--red);border-color:var(--red)}
 .add-s{color:var(--acc);font-size:16px;padding:8px 0}
+.tile,.tap{cursor:pointer}
+.bc{width:100%;height:auto;display:block;margin-top:10px}
+.chips{display:flex;gap:8px;margin:0 0 12px}
+.chips button{background:var(--card);padding:8px 14px;border-radius:16px;font-size:15px}
+.chips button.on{background:var(--pill);box-shadow:inset 0 0 0 2px var(--acc)}
+.ent{display:flex;align-items:center;gap:8px;padding:9px 0;border-top:1px solid var(--line)}
+.ent:first-child{border-top:0}
+.ent div{flex:1;display:flex;flex-direction:column;min-width:0}
+.ent span{font-weight:500}
 #rest{display:none;position:fixed;left:0;right:0;bottom:0;align-items:center;justify-content:space-between;gap:6px;background:var(--card);border-radius:28px 28px 0 0;padding:14px 14px calc(14px + env(safe-area-inset-bottom,0px));z-index:4;box-shadow:0 -2px 10px rgba(0,0,0,.15)}
 #rt{font-size:34px;font-weight:500;font-variant-numeric:tabular-nums;min-width:90px;text-align:center}
 #rest.end #rt{color:var(--red)}
@@ -173,6 +182,58 @@ function vPlans(){
  return h+S.plans.map(p=>`<section class="card"><div class="th"><h3>${esc(p.name)}</h3><span><button class="ghost" onclick="editPlan(${p.id})">Bearbeiten</button><button class="ghost" onclick="delPlan(${p.id})">Löschen</button></span></div>${p.exs.map(e=>`<div>${e.sets}x ${esc(e.name)}</div>`).join('')}<button class="tonal" onclick="start(${p.id})">Training starten</button></section>`).join('')}
 function addBw(){const k=parseFloat(($('#bw').value||'').replace(',','.'));if(isNaN(k)||k<20||k>400)return $('#bw').focus();
  S.bw=(S.bw||[]).filter(y=>y.d!==today());S.bw.push({d:today(),kg:k});save();render()}
+let sd=null,rg=28,repl=-1,exKeys=[];
+const KEYS={'Trainingsdauer':'dur','Gesamtzeit':'time','Volumen':'vol','Sätze gesamt':'sets','Wiederholungen gesamt':'reps','Wiederholungen pro Satz':'rps','Körpergewicht':'bw','Anzahl der Trainings':'wk'};
+const ISO=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+const dShort=d=>D(d).toLocaleDateString('de-DE',{day:'numeric',month:'short'});
+const dLong=d=>D(d).toLocaleDateString('de-DE',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+function openStat(k){sd=k;rg=28;render();scrollTo(0,0)}
+function openEx(i){sd='ex:'+exKeys[i];rg=0;render();scrollTo(0,0)}
+function closeStat(){sd=null;render();scrollTo(0,0)}
+function setRg(v){rg=v;render()}
+function delBw(d){S.bw=(S.bw||[]).filter(y=>y.d!==d);save();render()}
+function replOpen(i){repl=repl===i?-1:i;render();setTimeout(()=>{const x=$('#rn');if(x)x.focus()},0)}
+function replForm(i,e){return repl!==i?'':`<div class="add"><input id="rn" list="exs" placeholder="Neue Übung" autocomplete="off"><button class="tonal" onclick="replDo(${i})">Ersetzen</button></div>`+(e.sets.some(s=>s.done!==false)?`<div class="pv">Bereits abgehakte Sätze dieser Übung werden verworfen.</div>`:'')}
+function replDo(i){const n=$('#rn').value.trim(),e=S.active.exs[i];if(!n)return $('#rn').focus();
+ if(n!==e.name){const c=e.sets.length||e.target||1;e.name=n;delete e.ref;e.target=c;e.sets=mkSets(n,c)}
+ repl=-1;save();render()}
+function series(k,a){
+ const ss=S.sessions.filter(s=>s.date>=a).sort((u,v)=>u.date.localeCompare(v.date)||u.id-v.id);
+ const sets=s=>s.exs.reduce((q,e)=>q+e.sets.length,0),reps=s=>s.exs.reduce((q,e)=>q+e.sets.reduce((m,y)=>m+y.reps,0),0),vol=s=>s.exs.reduce((q,e)=>q+e.sets.reduce((m,y)=>m+y.kg*y.reps,0),0);
+ const per=(f,t,u)=>({t,u,pts:ss.map(s=>({d:s.date,v:f(s)}))});
+ if(k==='dur')return per(s=>s.min,'Trainingsdauer','min');
+ if(k==='time')return per(s=>s.min,'Gesamtzeit','min');
+ if(k==='vol')return per(vol,'Volumen','kg');
+ if(k==='sets')return per(sets,'Sätze gesamt','');
+ if(k==='reps')return per(reps,'Wiederholungen gesamt','');
+ if(k==='rps')return per(s=>sets(s)?reps(s)/sets(s):0,'Wiederholungen pro Satz','');
+ if(k==='bw')return {t:'Körpergewicht',u:'kg',pts:[...(S.bw||[])].filter(y=>y.d>=a).sort((u,v)=>u.d.localeCompare(v.d)).map(y=>({d:y.d,v:y.kg,bw:1}))};
+ if(k==='wk'){const c={};ss.forEach(s=>{const d=D(s.date);d.setDate(d.getDate()-((d.getDay()+6)%7));const m=ISO(d);c[m]=(c[m]||0)+1});
+  const ks=Object.keys(c).sort();if(!ks.length)return {t:'Trainings pro Woche',u:'',pts:[]};
+  const pts=[];for(let d=D(ks[0]);ISO(d)<=today();d.setDate(d.getDate()+7)){const m=ISO(d);pts.push({d:m,v:c[m]||0,txt:'Woche ab '+dShort(m)})}
+  return {t:'Trainings pro Woche',u:'',pts}}
+ const n=k.slice(3),pts=[];
+ ss.forEach(s=>{const e=s.exs.find(x=>x.name===n);if(e&&e.sets.length)pts.push({d:s.date,v:Math.max(...e.sets.map(x=>x.kg)),txt:e.sets.map(x=>fmt(x.kg)+' kg × '+x.reps).join(' | ')})});
+ return {t:n,u:'kg',pts,ex:1}}
+function bigChart(p,a){
+ const W=320,H=190,L=38,B=24,T=10,Rr=12,vs=p.map(q=>q.v);
+ let lo=Math.min(...vs),hi=Math.max(...vs);if(lo===hi){lo-=1;hi+=1}
+ const x0=D(a||p[0].d),span=Math.max(1,(D(today())-x0)/864e5);
+ const X=d=>L+(D(d)-x0)/864e5/span*(W-L-Rr),Y=v=>T+(1-(v-lo)/(hi-lo))*(H-T-B),lab=v=>fmt(Math.round(v*10)/10);
+ let s=`<svg class="bc" viewBox="0 0 ${W} ${H}" aria-hidden="true">`;
+ [lo,(lo+hi)/2,hi].forEach(v=>{s+=`<line x1="${L}" x2="${W-Rr}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="var(--line)"/><text x="${L-5}" y="${(Y(v)+3.5).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--mute)">${lab(v)}</text>`});
+ const c=p.map(q=>[X(q.d),Y(q.v)].map(n=>+n.toFixed(1)));
+ s+=`<polyline fill="none" stroke="var(--acc)" stroke-width="2" stroke-linejoin="round" points="${c.map(q=>q.join(',')).join(' ')}"/>`+c.map(q=>`<circle cx="${q[0]}" cy="${q[1]}" r="3.5" fill="var(--acc)"/>`).join('');
+ return s+`<text x="${L}" y="${H-6}" font-size="10" fill="var(--mute)">${dShort(a||p[0].d)}</text><text x="${W-Rr}" y="${H-6}" text-anchor="end" font-size="10" fill="var(--mute)">Heute</text></svg>`}
+function vDetail(){
+ const a=rg?ISO(new Date(Date.now()-rg*864e5)):'',r=series(sd,a),p=r.pts,vs=p.map(q=>q.v);
+ const f=v=>fmt(Math.round(v*10)/10)+(r.u?' '+r.u:'');
+ let h=`<div class="top"><button class="icon" onclick="closeStat()" aria-label="Zurück">←</button><h1>${esc(r.t)}</h1></div><div class="chips">`+[[28,'4 Wochen'],[90,'3 Monate'],[0,'Alles']].map(([v,l])=>`<button class="${rg===v?'on':''}" onclick="setRg(${v})">${l}</button>`).join('')+`</div>`;
+ if(!p.length)return h+`<p class="empty">Für diesen Zeitraum gibt es noch keine Werte.</p>`;
+ const sum=vs.reduce((x,y)=>x+y,0),sk=['time','vol','sets','reps','wk'].includes(sd);
+ const cells=[['Ø',sum/vs.length],['Max',Math.max(...vs)],sk?['Summe',sum]:['Zuletzt',vs[vs.length-1]]];
+ h+=`<div class="card"><div class="stats">${cells.map(([l,v])=>`<div><big>${f(v)}</big><small>${l}</small></div>`).join('')}</div>${bigChart(p,a)}</div>`;
+ return h+`<div class="card">`+[...p].reverse().map(q=>`<div class="ent"><div><b>${q.txt&&!r.ex?esc(q.txt):dLong(q.d)}</b>${r.ex?`<small>${esc(q.txt)}</small>`:''}</div><span>${f(q.v)}</span>${q.bw?`<button class="x" aria-label="Eintrag löschen" onclick="delBw('${q.d}')">✕</button>`:''}</div>`).join('')+`</div>`}
 function spark(p){
  const W=160,H=70,P=7;
  let s=`<svg viewBox="0 0 ${W} ${H}" aria-hidden="true"><line x1="0" y1="${P}" x2="${W}" y2="${P}" stroke="var(--line)"/><line x1="0" y1="${H-P}" x2="${W}" y2="${H-P}" stroke="var(--line)"/>`;
@@ -193,7 +254,7 @@ function vStats(){
  const bwAll=[...(S.bw||[])].sort((u,v)=>u.d.localeCompare(v.d)),bw=bwAll.filter(y=>y.d>=a);
  const wk=[0,0,0,0,0,0];ss.forEach(s=>{wk[Math.min(5,Math.floor((D(s.date)-D(a))/6048e5))]++});
  const dash='– –',lab=t0.toLocaleDateString('de-DE',{day:'numeric',month:'short'});
- const T=(t,v,p)=>`<div class="tile"><span class="tt">${t}</span><b>${v}</b>${spark(p)}<div class="ax"><small>${lab}</small><small>Heute</small></div></div>`;
+ const T=(t,v,p)=>`<div class="tile" onclick="openStat('${KEYS[t]}')"><span class="tt">${t}</span><b>${v}</b>${spark(p)}<div class="ax"><small>${lab}</small><small>Heute</small></div></div>`;
  return `<div class="grid">`
  +T('Trainingsdauer',n?'Ø '+Math.round(tm/n)+' Min.':'Ø – – Min.',pts(s=>s.min))
  +T('Gesamtzeit',n?(tm>=60?Math.floor(tm/60)+' h '+tm%60+' min':tm+' min'):dash,cum(s=>s.min))
@@ -208,30 +269,30 @@ function vBest(){
  const m={};
  S.sessions.forEach(s=>s.exs.forEach(e=>e.sets.forEach(x=>{const o=m[e.name]||(m[e.name]={w:0,wr:0,e1:0,d:new Set()});o.d.add(s.date);
   if(x.kg>o.w||(x.kg===o.w&&x.reps>o.wr)){o.w=x.kg;o.wr=x.reps}const v=x.kg*(1+x.reps/30);if(v>o.e1)o.e1=v})));
- const ks=Object.keys(m).sort((a,b)=>a.localeCompare(b,'de'));
+ const ks=Object.keys(m).sort((a,b)=>a.localeCompare(b,'de'));exKeys=ks;
  if(!ks.length)return `<p class="empty">Hier siehst du deine Bestwerte, sobald du ein Training beendet hast.</p>`;
  const tm=S.sessions.reduce((a,s)=>a+s.min,0);
  return `<h3 class="sh">Bestwerte pro Übung</h3>`
- +ks.map(k=>{const o=m[k];return `<section class="card"><h3>${esc(k)}</h3><div class="stats"><div><big>${fmt(o.w)} kg</big><small>${o.wr} Wdh. beim Bestgewicht</small></div><div><big>${fmt(Math.round(o.e1*10)/10)} kg</big><small>geschätztes Einer-Maximum</small></div><div><big>${o.d.size}</big><small>Trainingstage</small></div></div></section>`}).join('')}
+ +ks.map((k,i)=>{const o=m[k];return `<section class="card tap" onclick="openEx(${i})"><h3>${esc(k)}</h3><div class="stats"><div><big>${fmt(o.w)} kg</big><small>${o.wr} Wdh. beim Bestgewicht</small></div><div><big>${fmt(Math.round(o.e1*10)/10)} kg</big><small>geschätztes Einer-Maximum</small></div><div><big>${o.d.size}</big><small>Trainingstage</small></div></div></section>`}).join('')}
 function vSession(){
  const a=S.active,names=[...new Set([...S.sessions.flatMap(s=>s.exs.map(e=>e.name)),...S.plans.flatMap(p=>p.exs.map(e=>e.name))])];
  let h=`<div class="top"><button class="icon" onclick="back()" aria-label="Zurück">←</button><div><h1>${esc(a.name)}</h1><small id="tm">${mins()} min</small></div></div>`;
  a.exs.forEach((e,i)=>{const pv=e.ref||prevSets(e.name)||[],l=pv[e.sets.length]||pv[pv.length-1]||lastSet(e.name)||{kg:'',reps:''};
-  h+=`<section class="card"><div class="th"><h3>${esc(e.name)}</h3><small>${e.sets.filter(s=>s.done!==false).length} von ${e.sets.length} Sätzen</small></div>${pv.length?`<div class="pv">Letztes Mal: ${pv.map(x=>fmt(x.kg)+' kg × '+x.reps).join(' | ')}</div>`:''}`
+  h+=`<section class="card"><div class="th"><h3>${esc(e.name)}</h3><span><small>${e.sets.filter(s=>s.done!==false).length} von ${e.sets.length} Sätzen</small> <button class="ghost" onclick="replOpen(${i})">Ersetzen</button></span></div>${replForm(i,e)}${pv.length?`<div class="pv">Letztes Mal: ${pv.map(x=>fmt(x.kg)+' kg × '+x.reps).join(' | ')}</div>`:''}`
   +e.sets.map((s,j)=>`<div class="sr ${s.done!==false?'ok':'todo'}"><button class="ck" aria-label="Satz ${j+1} abhaken" onclick="tgl(${i},${j})">${s.done!==false?'✓':j+1}</button><label>Gewicht<input id="k${i}_${j}" inputmode="decimal" value="${s.kg}" onchange="setVal(${i},${j},'kg',this.value)"></label><label>Wdh.<input id="r${i}_${j}" inputmode="numeric" value="${s.reps}" onchange="setVal(${i},${j},'reps',this.value)"></label><button class="x" aria-label="Satz löschen" onclick="delSet(${i},${j})">✕</button></div>`).join('')
   +`<button class="ghost add-s" onclick="addSet(${i})">+ Satz hinzufügen</button></section>`});
  return h+`<div class="add"><input id="nx" list="exs" placeholder="Übung hinzufügen" autocomplete="off"><datalist id="exs">${names.map(n=>`<option value="${esc(n)}">`).join('')}</datalist><button class="tonal" onclick="addEx()">Hinzufügen</button></div><button class="pri wide" onclick="finish()">Training beenden</button><button class="ghost wide" onclick="discard()">Verwerfen</button>`}
 function render(){
  const m=$('#main'),ses=screen==='session'&&S.active;
- if(!ses)screen='main';
+ if(!ses){screen='main';repl=-1}
  $('#nav').style.display=ses?'none':'flex';$('#rest').style.display=ses?'flex':'none';restUI();
  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===tab));
  if(ses){m.innerHTML=vSession();return}
  const title=tab==='tb'?new Date().toLocaleDateString('de-DE',{month:'long'}):tab==='pl'?'Trainingspläne':'Statistik';
- m.innerHTML=`<h1>${title}</h1>`+(tab==='tb'?vDiary():tab==='pl'?vPlans():vStats())
+ m.innerHTML=(tab==='st'&&sd?'':`<h1>${title}</h1>`)+(tab==='tb'?vDiary():tab==='pl'?vPlans():sd?vDetail():vStats())
  +(tab==='tb'?`<button class="fab" onclick="fab()" aria-label="Training starten">+</button>`:'')
  +(sheet?`<div class="scrim" onclick="sheet=false;render()"><div class="sheet" onclick="event.stopPropagation()"><h3>Training starten</h3>${S.plans.map(p=>`<button class="opt" onclick="start(${p.id})">${esc(p.name)}</button>`).join('')}<button class="opt" onclick="start(0)">Leeres Training</button></div></div>`:'')}
-$('#nav').addEventListener('click',e=>{const b=e.target.closest('button');if(b){tab=b.dataset.t;sheet=false;render();scrollTo(0,0)}});
+$('#nav').addEventListener('click',e=>{const b=e.target.closest('button');if(b){tab=b.dataset.t;sd=null;sheet=false;render();scrollTo(0,0)}});
 document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.id==='nx')addEx()});
 setInterval(()=>{const t=$('#tm');if(t&&S.active)t.textContent=mins()+' min'},20000);
 let R={len:S.rest||90,left:S.rest||90,end:0,run:false,ctx:null};
